@@ -1,12 +1,12 @@
 use std::{fs, ops};
 
 fn main() {
-    println!("Hello, world!");
+    println!("Hello, to the ray tracer!");
 
-    let _ = fs::write("./output.ppm", write_gradient());
+    let _ = fs::write("./output.ppm", ray_tracer());
 }
 
-fn write_gradient() -> String {
+fn ray_tracer() -> String {
     let mut s = String::new();
 
     // image
@@ -40,7 +40,6 @@ fn write_gradient() -> String {
     s.push_str(&format!("255\n"));
 
     for j in 0..image_height {
-        // println!("Scanlines remaining: {}", height - j);
         for i in 0..image_width {
             let pixel_center =
                 pixel00_loc + (pixel_delta_u * i as f64) + (pixel_delta_v * j as f64);
@@ -54,14 +53,32 @@ fn write_gradient() -> String {
             s.push_str(pixel_color.write().as_str());
         }
     }
-    // println!("Done");
     return s;
 }
 
 fn ray_color(ray: Ray) -> Color {
+    let example_sphere_c = Point3(Vec3 {
+        x: 0.,
+        y: 0.,
+        z: -1.,
+    });
+    let example_sphere_r = 0.5;
+    if hit_sphere(&ray, example_sphere_c, example_sphere_r) {
+        return Color(Vec3::create(1., 0., 0.));
+    }
+
     let unit_direction = ray.direction.unit();
     let a = 0.5 * (unit_direction.y + 1.0);
     return Color(Vec3::create(1., 1., 1.) * (1.0 - a) + Vec3::create(0.5, 0.7, 1.0) * a);
+}
+
+fn hit_sphere(ray: &Ray, center: Point3, radius: f64) -> bool {
+    let oc = ray.origin.0 - center.0;
+    let a = ray.direction.dot(ray.direction);
+    let b = 2.0 * oc.dot(ray.direction);
+    let c = oc.dot(oc) - radius * radius;
+    let discriminant = b * b - a * c * 4.;
+    return discriminant >= 0.;
 }
 
 #[derive(Debug, Clone, Copy)]
