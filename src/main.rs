@@ -63,8 +63,10 @@ fn ray_color(ray: Ray) -> Color {
         z: -1.,
     });
     let example_sphere_r = 0.5;
-    if hit_sphere(&ray, example_sphere_c, example_sphere_r) {
-        return Color(Vec3::create(1., 0., 0.));
+    let t = hit_sphere(&ray, example_sphere_c, example_sphere_r);
+    if t > 0.0 {
+        let N: Vec3 = (ray.at(t).0 - Vec3::create(0., 0., -1.)).unit();
+        return Color(Vec3::create(N.x + 1., N.y + 1., N.z + 1.) * 0.5);
     }
 
     let unit_direction = ray.direction.unit();
@@ -72,13 +74,18 @@ fn ray_color(ray: Ray) -> Color {
     return Color(Vec3::create(1., 1., 1.) * (1.0 - a) + Vec3::create(0.5, 0.7, 1.0) * a);
 }
 
-fn hit_sphere(ray: &Ray, center: Point3, radius: f64) -> bool {
+fn hit_sphere(ray: &Ray, center: Point3, radius: f64) -> f64 {
     let oc = ray.origin.0 - center.0;
     let a = ray.direction.dot(ray.direction);
-    let b = 2.0 * oc.dot(ray.direction);
+    let half_b = oc.dot(ray.direction);
     let c = oc.dot(oc) - radius * radius;
-    let discriminant = b * b - a * c * 4.;
-    return discriminant >= 0.;
+    let discriminant = half_b * half_b - a * c;
+
+    if discriminant < 0. {
+        return -1.0;
+    } else {
+        return (-half_b - discriminant.sqrt()) / a;
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
