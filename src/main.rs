@@ -180,6 +180,18 @@ impl ops::Div<f64> for Vec3 {
     }
 }
 
+impl ops::Neg for Vec3 {
+    type Output = Vec3;
+
+    fn neg(self) -> Self::Output {
+        Vec3 {
+            x: -self.x,
+            y: -self.y,
+            z: -self.z,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Color(Vec3);
 impl Color {
@@ -205,5 +217,65 @@ struct Ray {
 impl Ray {
     fn at(&self, t: f64) -> Point3 {
         Point3(self.origin.0 + (self.direction * t))
+    }
+}
+
+struct HitRecord {
+    p: Point3,
+    normal: Vec3,
+    t: f64,
+    front_face: bool,
+}
+
+impl HitRecord {
+    pub fn set_face_normal(&mut self, ray: &Ray, outward_normal: &Vec3) {
+        self.front_face = outward_normal.dot(ray.direction) < 0.;
+        self.normal = if self.front_face {
+            *outward_normal
+        } else {
+            -(*outward_normal)
+        }
+    }
+}
+
+struct Hittable {
+    center: Point3,
+    radius: f64,
+}
+
+impl Hittable {
+    pub fn hit(&self, ray: &Ray, ray_tmin: f64, ray_tmax: f64) -> Option<HitRecord> {
+        let oc = ray.origin.0 - self.center.0;
+        let a = ray.direction.dot(ray.direction);
+        let half_b = oc.dot(ray.direction);
+        let c = oc.dot(oc) - self.radius * self.radius;
+        let discriminant = half_b * half_b - a * c;
+
+        if discriminant < 0. {
+            return Option::None;
+        }
+        let sqrtd = discriminant.sqrt();
+
+        // Find the nearest root that lies in the acceptable range.
+        let mut root = (-half_b - sqrtd) / a;
+        if root <= ray_tmin || ray_tmax <= root {
+            root = (-half_b + sqrtd) / a;
+            if root <= ray_tmin || ray_tmax <= root {
+                return Option::None;
+            }
+        }
+
+        let ray_at = ray.at(root);
+        let outward_normal = (ray_at.0 - self.center.0) / self.radius;
+
+        let mut hit_record = HitRecord {
+            t: root,
+            p: ray_at,
+            normal: outward_normal,
+            front_face: false,
+        };
+        hit_record.set_face_normal(ray, &outward_normal);
+
+        return Option::Some(hit_record);
     }
 }
