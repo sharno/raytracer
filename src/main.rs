@@ -15,7 +15,18 @@ fn ray_tracer() -> String {
     let mut image_height = (image_width as f64 / aspect_ratio) as i32;
     image_height = if image_height < 1 { 1 } else { image_height };
 
-    // viewport
+    // world
+    let mut world = HittableList::new();
+    world.add(Box::new(Sphere {
+        center: Point3(Vec3::create(0., 0., -1.)),
+        radius: 0.5,
+    }));
+    world.add(Box::new(Sphere {
+        center: Point3(Vec3::create(0., -100.5, -1.)),
+        radius: 100.,
+    }));
+
+    // camera
     let focal_length = 1.;
     let viewport_height = 2.0;
     let viewport_width = viewport_height * (image_width as f64 / image_height as f64);
@@ -35,6 +46,7 @@ fn ray_tracer() -> String {
     );
     let pixel00_loc = viewport_upper_left.0 + (pixel_delta_u + pixel_delta_v) * 0.5;
 
+    // render
     s += "P3\n";
     s.push_str(&format!("{} {}\n", image_width, image_height));
     s.push_str(&format!("255\n"));
@@ -49,24 +61,16 @@ fn ray_tracer() -> String {
                 direction: ray_direction,
             };
 
-            let pixel_color = ray_color(ray);
+            let pixel_color = ray_color(ray, &world);
             s.push_str(pixel_color.write().as_str());
         }
     }
     return s;
 }
 
-fn ray_color(ray: Ray) -> Color {
-    let example_sphere_c = Point3(Vec3 {
-        x: 0.,
-        y: 0.,
-        z: -1.,
-    });
-    let example_sphere_r = 0.5;
-    let t = hit_sphere(&ray, example_sphere_c, example_sphere_r);
-    if t > 0.0 {
-        let N: Vec3 = (ray.at(t).0 - Vec3::create(0., 0., -1.)).unit();
-        return Color(Vec3::create(N.x + 1., N.y + 1., N.z + 1.) * 0.5);
+fn ray_color(ray: Ray, world: &HittableList) -> Color {
+    if let Some(rec) = world.hit(&ray, Interval::new(0., f64::INFINITY)) {
+        return Color((rec.normal + Vec3::create(1., 1., 1.)) * 0.5);
     }
 
     let unit_direction = ray.direction.unit();
@@ -238,13 +242,17 @@ impl HitRecord {
     }
 }
 
-struct Hittable {
+trait Hittable {
+    fn hit(&self, ray: &Ray, ray_t: Interval) -> Option<HitRecord>;
+}
+
+struct Sphere {
     center: Point3,
     radius: f64,
 }
 
-impl Hittable {
-    pub fn hit(&self, ray: &Ray, ray_tmin: f64, ray_tmax: f64) -> Option<HitRecord> {
+impl Hittable for Sphere {
+    fn hit(&self, ray: &Ray, ray_t: Interval) -> Option<HitRecord> {
         let oc = ray.origin.0 - self.center.0;
         let a = ray.direction.dot(ray.direction);
         let half_b = oc.dot(ray.direction);
@@ -258,9 +266,9 @@ impl Hittable {
 
         // Find the nearest root that lies in the acceptable range.
         let mut root = (-half_b - sqrtd) / a;
-        if root <= ray_tmin || ray_tmax <= root {
+        if !ray_t.surrounds(root) {
             root = (-half_b + sqrtd) / a;
-            if root <= ray_tmin || ray_tmax <= root {
+            if !ray_t.surrounds(root) {
                 return Option::None;
             }
         }
@@ -277,5 +285,63 @@ impl Hittable {
         hit_record.set_face_normal(ray, &outward_normal);
 
         return Option::Some(hit_record);
+    }
+}
+
+struct HittableList {
+    objects: Vec<Box<dyn Hittable>>,
+}
+impl HittableList {
+    fn new() -> Self {
+        HittableList { objects: vec![] }
+    }
+
+    fn clear(self: &mut Self) {
+        self.objects.clear();
+    }
+
+    fn add(self: &mut Self, object: Box<dyn Hittable>) {
+        self.objects.push(object);
+    }
+}
+
+impl Hittable for HittableList {
+    fn hit(&self, ray: &Ray, ray_t: Interval) -> Option<HitRecord> {
+        let mut hit_option = None;
+        let mut closest_so_far = ray_t.max;
+
+        for object in &self.objects {
+            if let Some(hit_record) = object.hit(ray, Interval::new(ray_t.min, closest_so_far)) {
+                closest_so_far = hit_record.t;
+                hit_option = Some(hit_record);
+            }
+        }
+
+        return hit_option;
+    }
+}
+
+struct Interval {
+    min: f64,
+    max: f64,
+}
+
+impl Interval {
+    fn new(min: f64, max: f64) -> Self {
+        Interval { min, max }
+    }
+    fn empty() -> Self {
+        Self::new(f64::INFINITY, f64::NEG_INFINITY)
+    }
+    fn universe() -> Self {
+        Self::new(f64::NEG_INFINITY, f64::INFINITY)
+    }
+
+    fn contains(&self, x: f64) -> bool {
+        return self.min <= x && x <= self.max;
+    }
+
+    fn surrounds(&self, x: f64) -> bool {
+        return self.min < x && x < self.max;
     }
 }
