@@ -3,18 +3,6 @@ use std::{fs, ops};
 fn main() {
     println!("Hello, to the ray tracer!");
 
-    let _ = fs::write("./output.ppm", ray_tracer());
-}
-
-fn ray_tracer() -> String {
-    let mut s = String::new();
-
-    // image
-    let aspect_ratio = 16. / 9.;
-    let image_width = 400;
-    let mut image_height = (image_width as f64 / aspect_ratio) as i32;
-    image_height = if image_height < 1 { 1 } else { image_height };
-
     // world
     let mut world = HittableList::new();
     world.add(Box::new(Sphere {
@@ -26,69 +14,94 @@ fn ray_tracer() -> String {
         radius: 100.,
     }));
 
-    // camera
-    let focal_length = 1.;
-    let viewport_height = 2.0;
-    let viewport_width = viewport_height * (image_width as f64 / image_height as f64);
-    let camera_center = Point3(Vec3::zero());
+    let mut cam = Camera::initialize();
 
-    // Calculate the vectors across the horizontal and down the vertical viewport edges.
-    let viewport_u = Vec3::create(viewport_width, 0., 0.);
-    let viewport_v = Vec3::create(0., -viewport_height, 0.);
+    cam.aspect_ratio = 16.0 / 9.0;
+    cam.image_width = 400;
 
-    // Calculate the horizontal and vertical delta vectors from pixel to pixel.
-    let pixel_delta_u = viewport_u / image_width as f64;
-    let pixel_delta_v = viewport_v / image_height as f64;
+    cam.render(&world);
+}
 
-    // Calculate the location of the upper left pixel.
-    let viewport_upper_left = Point3(
-        camera_center.0 - Vec3::create(0., 0., focal_length) - (viewport_u / 2.) - viewport_v / 2.,
-    );
-    let pixel00_loc = viewport_upper_left.0 + (pixel_delta_u + pixel_delta_v) * 0.5;
+struct Camera {
+    aspect_ratio: f64,   // Ratio of image width over height
+    image_width: usize,  // Rendered image width in pixel count
+    image_height: usize, // Rendered image height
+    center: Point3,      // Camera center
+    pixel00_loc: Point3, // Location of pixel 0, 0
+    pixel_delta_u: Vec3, // Offset to pixel to the right
+    pixel_delta_v: Vec3, // Offset to pixel below
+}
 
-    // render
-    s += "P3\n";
-    s.push_str(&format!("{} {}\n", image_width, image_height));
-    s.push_str(&format!("255\n"));
+impl Camera {
+    pub fn render(self: &Self, world: &impl Hittable) {
+        // render
+        let mut image = String::new();
+        image += "P3\n";
+        image.push_str(&format!("{} {}\n", self.image_width, self.image_height));
+        image.push_str(&format!("255\n"));
 
-    for j in 0..image_height {
-        for i in 0..image_width {
-            let pixel_center =
-                pixel00_loc + (pixel_delta_u * i as f64) + (pixel_delta_v * j as f64);
-            let ray_direction = pixel_center - camera_center.0;
-            let ray = Ray {
-                origin: camera_center,
-                direction: ray_direction,
-            };
+        for j in 0..self.image_height {
+            for i in 0..self.image_width {
+                let pixel_center = self.pixel00_loc.0
+                    + (self.pixel_delta_u * i as f64)
+                    + (self.pixel_delta_v * j as f64);
+                let ray_direction = pixel_center - self.center.0;
+                let ray = Ray {
+                    origin: self.center,
+                    direction: ray_direction,
+                };
 
-            let pixel_color = ray_color(ray, &world);
-            s.push_str(pixel_color.write().as_str());
+                let pixel_color = Self::ray_color(ray, world);
+                image.push_str(pixel_color.write().as_str());
+            }
         }
+        fs::write("./output.ppm", image).unwrap();
     }
-    return s;
-}
+    fn initialize() -> Self {
+        // image
+        let aspect_ratio = 16. / 9.;
+        let image_width = 400;
+        let mut image_height = (image_width as f64 / aspect_ratio) as usize;
+        image_height = if image_height < 1 { 1 } else { image_height };
 
-fn ray_color(ray: Ray, world: &HittableList) -> Color {
-    if let Some(rec) = world.hit(&ray, Interval::new(0., f64::INFINITY)) {
-        return Color((rec.normal + Vec3::create(1., 1., 1.)) * 0.5);
+        // camera
+        let focal_length = 1.;
+        let viewport_height = 2.0;
+        let viewport_width = viewport_height * (image_width as f64 / image_height as f64);
+        let center = Point3(Vec3::zero());
+
+        // Calculate the vectors across the horizontal and down the vertical viewport edges.
+        let viewport_u = Vec3::create(viewport_width, 0., 0.);
+        let viewport_v = Vec3::create(0., -viewport_height, 0.);
+
+        // Calculate the horizontal and vertical delta vectors from pixel to pixel.
+        let pixel_delta_u = viewport_u / image_width as f64;
+        let pixel_delta_v = viewport_v / image_height as f64;
+
+        // Calculate the location of the upper left pixel.
+        let viewport_upper_left = Point3(
+            center.0 - Vec3::create(0., 0., focal_length) - (viewport_u / 2.) - viewport_v / 2.,
+        );
+        let pixel00_loc = Point3(viewport_upper_left.0 + (pixel_delta_u + pixel_delta_v) * 0.5);
+
+        return Self {
+            aspect_ratio,
+            image_width,
+            image_height,
+            center,
+            pixel00_loc,
+            pixel_delta_u,
+            pixel_delta_v,
+        };
     }
+    fn ray_color(ray: Ray, world: &impl Hittable) -> Color {
+        if let Some(rec) = world.hit(&ray, Interval::new(0., f64::INFINITY)) {
+            return Color((rec.normal + Vec3::create(1., 1., 1.)) * 0.5);
+        }
 
-    let unit_direction = ray.direction.unit();
-    let a = 0.5 * (unit_direction.y + 1.0);
-    return Color(Vec3::create(1., 1., 1.) * (1.0 - a) + Vec3::create(0.5, 0.7, 1.0) * a);
-}
-
-fn hit_sphere(ray: &Ray, center: Point3, radius: f64) -> f64 {
-    let oc = ray.origin.0 - center.0;
-    let a = ray.direction.dot(ray.direction);
-    let half_b = oc.dot(ray.direction);
-    let c = oc.dot(oc) - radius * radius;
-    let discriminant = half_b * half_b - a * c;
-
-    if discriminant < 0. {
-        return -1.0;
-    } else {
-        return (-half_b - discriminant.sqrt()) / a;
+        let unit_direction = ray.direction.unit();
+        let a = 0.5 * (unit_direction.y + 1.0);
+        return Color(Vec3::create(1., 1., 1.) * (1.0 - a) + Vec3::create(0.5, 0.7, 1.0) * a);
     }
 }
 
